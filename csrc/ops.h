@@ -476,6 +476,11 @@ void exl3_moe_mid_out(torch::Tensor out, torch::Tensor yg, torch::Tensor yu,
 void exl3_moe_post_out(torch::Tensor out, torch::Tensor yd,
                        torch::Tensor topk_ids, torch::Tensor topk_weights,
                        torch::Tensor d_svh);
+void sm70_glm53_sparse_mla_fp8_out(torch::Tensor out, torch::Tensor o_part,
+                                   torch::Tensor ml, torch::Tensor q,
+                                   torch::Tensor kv_cache,
+                                   torch::Tensor indices, torch::Tensor lengths,
+                                   double scale);
 
 void sm70_glm53_moe_permute_q8_out(torch::Tensor input, torch::Tensor topk_ids,
                                    torch::Tensor permuted_input,
