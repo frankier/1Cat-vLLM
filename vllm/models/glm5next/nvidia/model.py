@@ -316,6 +316,10 @@ class Glm5NextMoE(nn.Module):
             intermediate_size=config.moe_intermediate_size,
             renormalize=getattr(config, "norm_topk_prob", True),
             quant_config=quant_config,
+            # EXL3 kernels require 512-wide intermediate shards. Keep a full
+            # TP-local expert replica per DP engine instead of flattening TP
+            # across DP (TP4 x DP2 would otherwise create 256-wide shards).
+            dp_size=1 if isinstance(quant_config, Exl3Config) else None,
             use_grouped_topk=True,
             num_expert_group=getattr(config, "n_group", 1),
             topk_group=getattr(config, "topk_group", 1),

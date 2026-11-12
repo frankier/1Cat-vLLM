@@ -323,3 +323,65 @@ def test_exl3_moe_kernel_needs_strip_major():
     bad = exl3_moe_forward(x, ids, wts, **layer, colmajor=True)
     assert ((good.double() - ref).norm() / ref.norm()).item() < 2e-3
     assert ((bad.double() - ref).norm() / ref.norm()).item() > 0.1
+
+
+@pytest.mark.parametrize("exl3", [False, True])
+@pytest.mark.parametrize("dp_rank", [0, 1])
+def test_glm_moe_dp_keeps_exl3_tp_local(monkeypatch, exl3, dp_rank):
+    from types import SimpleNamespace as NS
+
+    from vllm.model_executor.layers.fused_moe import config as moe_config
+    from vllm.models.glm5next.nvidia import model
+
+    parallel = NS(
+        enable_expert_parallel=False,
+        use_sequence_parallel_moe=False,
+        enable_eplb=False,
+        eplb_config=NS(num_redundant_experts=0),
+        all2all_backend="allgather_reducescatter",
+    )
+    captured = {}
+
+    def fused(**kwargs):
+        captured.update(kwargs)
+        return torch.nn.Identity()
+
+    def gate(*args, **kwargs):
+        layer = torch.nn.Identity()
+        layer.out_dtype = kwargs["out_dtype"]
+        return layer
+
+    monkeypatch.setattr(model, "FusedMoE", fused)
+    monkeypatch.setattr(model, "GateLinear", gate)
+    monkeypatch.setattr(model, "Glm5NextMLP", lambda **kw: torch.nn.Identity())
+    monkeypatch.setattr(model, "_get_moe_router_dtype", lambda config: torch.float32)
+    monkeypatch.setattr(model, "get_tensor_model_parallel_world_size", lambda: 4)
+    monkeypatch.setattr(model, "get_tensor_model_parallel_rank", lambda: 2)
+    monkeypatch.setattr(
+        model,
+        "get_ep_group",
+        lambda: NS(device_group=NS(size=lambda: 8), rank_in_group=dp_rank * 4 + 2),
+    )
+    monkeypatch.setattr(moe_config, "get_tensor_model_parallel_rank", lambda: 2)
+    monkeypatch.setattr(moe_config, "get_dp_group", lambda: NS(rank_in_group=dp_rank))
+    config = NS(
+        hidden_act="silu",
+        n_routed_experts=256,
+        n_shared_experts=1,
+        hidden_size=4096,
+        moe_intermediate_size=2048,
+        num_experts_per_token=8,
+    )
+    model.Glm5NextMoE(config, parallel, Exl3Config(codebook="mcg") if exl3 else None)
+    layout = moe_config.FusedMoEParallelConfig.make(
+        tp_size_=4,
+        pcp_size_=1,
+        dp_size_=captured["dp_size"] or 2,
+        sp_size_=1,
+        vllm_parallel_config=parallel,
+    )
+    assert (layout.tp_size, layout.dp_size, layout.tp_rank) == (
+        (4, 1, 2) if exl3 else (8, 2, dp_rank * 4 + 2)
+    )
+    if exl3:
+        assert config.moe_intermediate_size // layout.tp_size == 512
