@@ -336,9 +336,24 @@ def apply_runtime_defaults(cfg, defaults, phase: str, *, is_sm70: bool):
                 )
         return None
     if phase == "projections":
-        return _apply_sm70_qwen38_decode_defaults(
+        applied = _apply_sm70_qwen38_decode_defaults(
             cfg, is_sm70=is_sm70, defaults=defaults
         )
+        # GLM MTP uses single-token draft decode too. Verifier-aligned capture
+        # sizes can otherwise leave its decode manager with no graph candidates.
+        if (
+            is_sm70
+            and cfg.model_config is not None
+            and getattr(cfg.model_config.hf_text_config, "model_type", None)
+            in ("glm5_next", "glm5_next_text")
+            and cfg.speculative_config is not None
+            and cfg.speculative_config.method == "mtp"
+            and cfg.parallel_config.pipeline_parallel_size == 1
+            and "VLLM_SM70_MTP_SPLIT_DRAFT_CUDAGRAPHS" not in defaults
+        ):
+            defaults["VLLM_SM70_MTP_SPLIT_DRAFT_CUDAGRAPHS"] = "1"
+            applied += ("VLLM_SM70_MTP_SPLIT_DRAFT_CUDAGRAPHS",)
+        return applied
     if phase == "breakable":
         if (
             cfg.model_config is not None

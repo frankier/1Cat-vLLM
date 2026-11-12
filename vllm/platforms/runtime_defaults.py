@@ -433,8 +433,8 @@ def apply_runtime_policy_defaults(self):
                 ),
             ):
                 logger.info_once(
-                    "Auto-setting %s=1 for shape-checked SM70 Qwen4Exp "
-                    "FP16 decode operators. Set it explicitly to override.",
+                    "Auto-setting %s=1 for SM70 model "
+                    "decode policies. Set it explicitly to override.",
                     env_name,
                 )
         if (

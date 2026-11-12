@@ -489,3 +489,38 @@ def test_inactive_speculation_and_gated_norm_do_not_salt_other_engines(monkeypat
     assert envs.compile_factors(cfg.kernel_config, vllm_config=cfg) == before
     for reader in readers.values():
         reader.assert_not_called()
+
+
+@pytest.mark.parametrize("model_type", ["glm5_next", "glm5_next_text"])
+@pytest.mark.parametrize("override", [None, False, True])
+def test_glm_mtp_split_draft_graphs(monkeypatch, model_type, override):
+    cfg = engine(model="glm", tp=4, pp=1, spec="mtp")
+    cfg.model_config.hf_text_config.model_type = model_type
+    if override is not None:
+        cfg.compilation_config.runtime.split_draft_graphs = override
+    apply(cfg, monkeypatch)
+    assert cfg.compilation_config.runtime.split_draft_graphs is (
+        True if override is None else override
+    )
+
+
+@pytest.mark.parametrize(
+    "spec,pp,capability",
+    [
+        (None, 1, 70),
+        ("dflash", 1, 70),
+        ("mtp", 2, 70),
+        ("mtp", 1, 80),
+    ],
+)
+def test_glm_split_draft_graphs_scope(monkeypatch, spec, pp, capability):
+    cfg = engine(model="glm", tp=4, pp=pp, spec=spec)
+    apply(cfg, monkeypatch, capability=capability)
+    assert not cfg.compilation_config.runtime.split_draft_graphs
+
+
+def test_glm_split_draft_graphs_legacy_override(monkeypatch):
+    monkeypatch.setenv("VLLM_SM70_MTP_SPLIT_DRAFT_CUDAGRAPHS", "0")
+    cfg = engine(model="glm", spec="mtp")
+    apply(cfg, monkeypatch)
+    assert not cfg.compilation_config.runtime.split_draft_graphs
